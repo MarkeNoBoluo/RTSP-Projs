@@ -1,0 +1,84 @@
+# Build outputs
+build/
+build-x86/
+build-x64/
+bin/
+[Oo]bj/
+Win32/
+x64/
+x86/
+[Dd]ebug/
+[Rr]elease/
+[Dd]ebugPublic/
+[Rr]eleasePublic/
+out/
+
+# Runtime artifacts
+*.log
+*.csv
+
+# MSVC / Visual Studio
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.opendb
+*.db
+*.dbmdl
+.vs/
+.vscode/
+*.aps
+*.ncb
+*.vcxproj.user
+*.vcxproj.filters.user
+
+# Compiled / intermediate files
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.iobj
+*.pdb
+*.ipdb
+*.ilk
+*.idb
+*.pch
+*.ipch
+*.res
+*.tlb
+*.sbr
+*.bsc
+*.pgc
+*.pgd
+*.pgd
+
+# MSBuild intermediate
+*.tlog
+*.lastbuildstate
+*.lastcodesign
+*.unsuccessfulbuild
+*.recipe
+*.log2
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeUserPresets.json
+CTestTestfile.cmake
+Testing/
+
+# OS files
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+
+# Superpowers
+.superpowers/

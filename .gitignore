@@ -1,0 +1,91 @@
+# Build outputs
+build/
+build-*/
+bin/
+[Oo]bj/
+Win32/
+out/
+
+# MSVC / Visual Studio
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.vcxproj.filters.user
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.opendb
+*.db
+*.dbmdl
+.vs/
+.vscode/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleasePublic/
+__pycache__/
+*.aps
+*.ncb
+*.idb
+
+# Compiled / intermediate files
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.iobj
+*.pdb
+*.ipdb
+*.ilk
+*.idb
+*.pch
+*.ipch
+*.res
+*.tlb
+*.sbr
+*.bsc
+*.pgc
+*.pgd
+
+# MSBuild intermediate
+*.tlog
+*.lastbuildstate
+*.lastcodesign
+*.unsuccessfulbuild
+*.recipe
+*.log2
+
+# Runtime artifacts
+*.log
+*.csv
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeUserPresets.json
+CTestTestfile.cmake
+Testing/
+
+# Third-party prebuilt libraries (DLLs, .lib, .exe, .pdb, etc.)
+3rd/
+
+# OS files
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# IDE
+*.swp
+*.swo
+*~
+.idea/
+
+# Superpowers
+.superpowers/

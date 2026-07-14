@@ -11,6 +11,7 @@ extern "C" {
 }
 
 struct AVCodecContext;
+struct AVBufferRef;
 struct SwsContext;
 struct AVFrame;
 struct AVFormatContext;
@@ -57,6 +58,11 @@ private:
     const char*   m_requestedEncoder = "libx264";      // user's --hw-encoder value
     const char*   m_encoderName = "libx264";           // actual opened encoder
     AVPixelFormat m_encoderPixFmt = AV_PIX_FMT_YUV420P; // varies by encoder
+
+    // VAAPI hardware contexts (owned by this thread)
+    AVBufferRef*  m_hwDeviceCtx = nullptr;   // VAAPI hw device
+    AVBufferRef*  m_hwFramesCtx = nullptr;   // VAAPI hw frames pool
+    AVFrame*      m_hwFrame = nullptr;        // VAAPI surface for upload+encode
 
     std::thread m_thread;
     std::atomic<bool> m_abort{false};

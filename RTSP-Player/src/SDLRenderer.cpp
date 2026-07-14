@@ -1,6 +1,7 @@
 #include "SDLRenderer.h"
 #include "Common.h"
 #include <cstdlib>
+#include <cstring>
 #include "logger/Logger.h"
 
 #include <SDL.h>
@@ -55,6 +56,7 @@ SDLRenderer::SDLRenderer(const char* winIdStr)
     : m_title("RTSP Player (embedded)")
     , m_embedded(true)
 {
+#ifdef _WIN32
     char* end = nullptr;
     uintptr_t hwnd = std::strtoull(winIdStr, &end, 0);
     if (end == winIdStr || *end != '\0') {
@@ -76,6 +78,11 @@ SDLRenderer::SDLRenderer(const char* winIdStr)
         LOG_ERROR("SDL_CreateRenderer failed: %s", SDL_GetError());
         return;
     }
+#else
+    LOG_WARN("--winId is not supported on Linux, ignoring");
+    (void)winIdStr;
+    return;
+#endif
 
     SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
     SDL_RenderClear(m_renderer);
@@ -197,9 +204,34 @@ void SDLRenderer::displayFrame(AVFrame* frame) {
 
     Uint64 t1 = SDL_GetPerformanceCounter();
 
+#if SDL_VERSION_ATLEAST(2, 0, 16)
     SDL_UpdateNVTexture(m_texture, nullptr,
                         updateY, updateYStride,
                         updateUV, updateUVStride);
+#else
+    // SDL < 2.0.16: use LockTexture / UnlockTexture
+    {
+        void* pixels = nullptr;
+        int pitch = 0;
+        if (SDL_LockTexture(m_texture, nullptr, &pixels, &pitch) == 0) {
+            uint8_t* dst = static_cast<uint8_t*>(pixels);
+            // Copy Y plane
+            for (int row = 0; row < m_texH; row++) {
+                memcpy(dst + row * pitch,
+                       updateY + row * updateYStride, m_texW);
+            }
+            // Copy UV plane (interleaved, half height)
+            uint8_t* uvDst = dst + pitch * m_texH;
+            int uvHeight = m_texH / 2;
+            int uvWidth = m_texW;
+            for (int row = 0; row < uvHeight; row++) {
+                memcpy(uvDst + row * pitch,
+                       updateUV + row * updateUVStride, uvWidth);
+            }
+            SDL_UnlockTexture(m_texture);
+        }
+    }
+#endif
 
     Uint64 t2 = SDL_GetPerformanceCounter();
 

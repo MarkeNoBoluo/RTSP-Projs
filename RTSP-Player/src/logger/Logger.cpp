@@ -5,6 +5,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>      // gettid
 #endif
 
 namespace logger {
@@ -22,7 +24,11 @@ bool Logger::initLogFile(const char* path) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (m_logFile) fclose(m_logFile);
 
+#ifdef _WIN32
     fopen_s(&m_logFile, path, "a");
+#else
+    m_logFile = fopen(path, "a");
+#endif
     if (!m_logFile) {
         fprintf(stderr, "[LOGGER] Failed to open log file: %s\n", path);
         return false;
@@ -52,7 +58,11 @@ void Logger::log(Level lv, const char* file, int line, const char* fmt, ...) {
                   now.time_since_epoch()) % 1000;
 
     std::tm tm_buf;
+#ifdef _WIN32
     localtime_s(&tm_buf, &t);
+#else
+    localtime_r(&t, &tm_buf);
+#endif
 
     char timeBuf[32];
     snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d.%03d",
@@ -70,7 +80,13 @@ void Logger::log(Level lv, const char* file, int line, const char* fmt, ...) {
     int len = snprintf(lineBuf, sizeof(lineBuf),
                        "[%s] [%s] [%s:%d] [tid:%u] %s\n",
                        timeBuf, levelName(lv), basename(file), line,
-                       (unsigned)GetCurrentThreadId(), msgBuf);
+                       (unsigned)
+#ifdef _WIN32
+                       GetCurrentThreadId()
+#else
+                       gettid()
+#endif
+                       , msgBuf);
 
     fwrite(lineBuf, 1, len, stderr);
     fflush(stderr);

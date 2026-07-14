@@ -3,9 +3,15 @@
 #include <cstdio>
 #include <cstring>
 
+#ifdef __linux__
+#include <unistd.h>
+#endif
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/opt.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/log.h>
 }
 
 // ── Known H.264 encoder names ────────────────────────────────────────
@@ -20,6 +26,7 @@ static const EncoderEntry kEncoders[] = {
     {"h264_qsv",  "Intel Quick Sync Video H.264 encoder",  AV_PIX_FMT_NV12},
     {"h264_amf",  "AMD AMF H.264 encoder",                 AV_PIX_FMT_YUV420P},
     {"h264_nvenc","NVIDIA NVENC H.264 encoder",            AV_PIX_FMT_YUV420P},
+    {"h264_vaapi","VAAPI hardware H.264 encoder",          AV_PIX_FMT_VAAPI},
 };
 
 // ── Minimal open/close probe for one encoder ─────────────────────────
@@ -48,7 +55,32 @@ static bool probeEncoderOpenable(const EncoderEntry& entry) {
         av_opt_set(ctx->priv_data, "low_power",  "1", 0);
     }
 
+    // VAAPI-specific: create temporary hw device so avcodec_open2 can succeed
+    AVBufferRef* probeHwDev = nullptr;
+    if (std::strstr(entry.name, "vaapi")) {
+        const char* drmDev = "/dev/dri/renderD128";
+#ifdef __linux__
+        if (::access(drmDev, R_OK | W_OK) != 0) {
+            avcodec_free_context(&ctx);
+            return false;
+        }
+#endif
+        // Suppress FFmpeg internal error log during probe
+        int prevLevel = av_log_get_level();
+        av_log_set_level(AV_LOG_QUIET);
+        int hwret = av_hwdevice_ctx_create(&probeHwDev, AV_HWDEVICE_TYPE_VAAPI,
+                                           drmDev, nullptr, 0);
+        av_log_set_level(prevLevel);
+        if (hwret != 0 || !probeHwDev) {
+            avcodec_free_context(&ctx);
+            return false;
+        }
+        ctx->hw_device_ctx = av_buffer_ref(probeHwDev);
+        ctx->pix_fmt = AV_PIX_FMT_VAAPI;
+    }
+
     int ret = avcodec_open2(ctx, codec, nullptr);
+    if (probeHwDev) av_buffer_unref(&probeHwDev);
     avcodec_free_context(&ctx);
     return ret == 0;
 }
@@ -78,8 +110,9 @@ void printAvailableEncoders() {
 
     printf("\nUsage:\n");
     printf("  --hw-encoder off          Use libx264 (default)\n");
-    printf("  --hw-encoder auto         Try QSV -> NVENC -> libx264\n");
+    printf("  --hw-encoder auto         Try QSV -> VAAPI -> NVENC -> libx264\n");
     printf("  --hw-encoder qsv          Intel Quick Sync (explicit, fail if unavailable)\n");
+    printf("  --hw-encoder vaapi        VAAPI (explicit, fail if unavailable)\n");
     printf("  --hw-encoder nvenc        NVIDIA NVENC (explicit, fail if unavailable)\n");
     printf("  --hw-encoder <codec-name> Use a specific encoder by name\n");
 }
@@ -103,6 +136,13 @@ const char* resolveEncoderName(const char* hwEncoderSetting) {
     if (std::strcmp(hwEncoderSetting, "nvenc") == 0) {
         if (avcodec_find_encoder_by_name("h264_nvenc")) {
             return "h264_nvenc";
+        }
+        return nullptr;
+    }
+
+    if (std::strcmp(hwEncoderSetting, "vaapi") == 0) {
+        if (avcodec_find_encoder_by_name("h264_vaapi")) {
+            return "h264_vaapi";
         }
         return nullptr;
     }

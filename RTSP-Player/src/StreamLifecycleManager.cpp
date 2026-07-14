@@ -234,9 +234,10 @@ bool StreamLifecycleManager::initDecoders() {
         if (!m_videoCodecCtx) return false;
         avcodec_parameters_to_context(m_videoCodecCtx, m_videoCodecPar);
 
+#ifdef _WIN32
         // DXVA2 hardware decode setup
         bool enableDxva2 = (m_hwAccelMode != HwAccelMode::None);
-#if defined(_WIN32) && !defined(_WIN64)
+#if !defined(_WIN64)
         if (m_hwAccelMode == HwAccelMode::Auto) {
             enableDxva2 = false;
             LOG_WARN("DXVA2 auto disabled for 32-bit process; using software decode. Use --hwaccel dxva2 to force hardware decode.");
@@ -275,6 +276,12 @@ bool StreamLifecycleManager::initDecoders() {
                 LOG_INFO("No DXVA2 hardware config for this codec, using software decode");
             }
         }
+#else
+        // Linux: hardware decode not yet supported, use software only
+        if (m_hwAccelMode == HwAccelMode::Dxva2) {
+            LOG_WARN("DXVA2 not available on Linux, falling back to software decode");
+        }
+#endif
 
         if (m_lowLatency) {
             m_videoCodecCtx->flags |= AV_CODEC_FLAG_LOW_DELAY;

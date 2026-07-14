@@ -155,12 +155,13 @@ void RTSPlayer::videoRefresh() {
     int64_t pts = m_frameQueue->peekDisplayPts();
     if (pts < 0) return;
 
+    // Declared early: GCC forbids goto crossing initialization
+    double targetTime = 0.0;
+
     // 2. First frame: render immediately
     if (!m_clock->isReady()) {
         goto render;
     }
-
-    double targetTime = 0.0;
 
     // 3. Time calculations
     {

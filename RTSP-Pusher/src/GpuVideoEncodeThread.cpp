@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 
+#ifdef _WIN32
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavfilter/avfilter.h>
@@ -525,3 +527,16 @@ void GpuVideoEncodeThread::close() {
         m_sinkCtx = nullptr;
     }
 }
+
+#else  // !_WIN32 — Linux stubs (GPU pipeline not supported)
+
+GpuVideoEncodeThread::GpuVideoEncodeThread(const PusherConfig*, EncodedPacketQueue*, PusherStats*, GpuBackend) {}
+GpuVideoEncodeThread::~GpuVideoEncodeThread() {}
+bool GpuVideoEncodeThread::start(int) { return false; }
+void GpuVideoEncodeThread::stop() {}
+void GpuVideoEncodeThread::join() {}
+void GpuVideoEncodeThread::setErrorCallback(ErrorCallback) {}
+void GpuVideoEncodeThread::setSerial(int) {}
+// Note: codecContext() is defined inline in the header
+
+#endif

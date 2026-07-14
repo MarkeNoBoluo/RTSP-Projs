@@ -27,7 +27,7 @@ bool ScreenCaptureThread::start(int serial) {
     m_abort = false;
 
     if (!openInput()) {
-        LOG_ERROR("[capture] Failed to open gdigrab input");
+        LOG_ERROR("[capture] Failed to open screen capture input");
         return false;
     }
 
@@ -58,13 +58,28 @@ void ScreenCaptureThread::setSerial(int serial) {
 bool ScreenCaptureThread::openInput() {
     avdevice_register_all();
 
-#if LIBAVFORMAT_VERSION_MAJOR >= 60
-    const AVInputFormat* inputFormat = av_find_input_format("gdigrab");
+#ifdef _WIN32
+    const char* formatName = "gdigrab";
+    const char* url = "desktop";
 #else
-    AVInputFormat* inputFormat = av_find_input_format("gdigrab");
+    const char* formatName = "x11grab";
+    const char* display = getenv("DISPLAY");
+    char displayUrl[64];
+    if (display && display[0]) {
+        snprintf(displayUrl, sizeof(displayUrl), "%s", display);
+    } else {
+        snprintf(displayUrl, sizeof(displayUrl), ":0.0");
+    }
+    const char* url = displayUrl;
+#endif
+
+#if LIBAVFORMAT_VERSION_MAJOR >= 60
+    const AVInputFormat* inputFormat = av_find_input_format(formatName);
+#else
+    AVInputFormat* inputFormat = av_find_input_format(formatName);
 #endif
     if (!inputFormat) {
-        LOG_ERROR("[capture] gdigrab input format not found");
+        LOG_ERROR("[capture] %s input format not found", formatName);
         return false;
     }
 
@@ -91,11 +106,16 @@ bool ScreenCaptureThread::openInput() {
     if (m_config->screenIndex > 0) {
         char offsetXStr[32];
         snprintf(offsetXStr, sizeof(offsetXStr), "%d", m_config->captureOffsetX);
-        av_dict_set(&opts, "offset_x", offsetXStr, 0);
-
         char offsetYStr[32];
         snprintf(offsetYStr, sizeof(offsetYStr), "%d", m_config->captureOffsetY);
+
+#ifdef _WIN32
+        av_dict_set(&opts, "offset_x", offsetXStr, 0);
         av_dict_set(&opts, "offset_y", offsetYStr, 0);
+#else
+        av_dict_set(&opts, "grab_x", offsetXStr, 0);
+        av_dict_set(&opts, "grab_y", offsetYStr, 0);
+#endif
 
         LOG_INFO("[capture] Screen offset: (%d, %d)",
                  m_config->captureOffsetX, m_config->captureOffsetY);
@@ -105,11 +125,11 @@ bool ScreenCaptureThread::openInput() {
     m_inputCtx->probesize = 32;
     m_inputCtx->max_analyze_duration = 1;
 
-    int ret = avformat_open_input(&m_inputCtx, "desktop", inputFormat, &opts);
+    int ret = avformat_open_input(&m_inputCtx, url, inputFormat, &opts);
     if (ret < 0) {
         char errBuf[256];
         av_strerror(ret, errBuf, sizeof(errBuf));
-        LOG_ERROR("[capture] avformat_open_input(desktop) failed: %s", errBuf);
+        LOG_ERROR("[capture] avformat_open_input(%s) failed: %s", url, errBuf);
         av_dict_free(&opts);
         avformat_free_context(m_inputCtx);
         m_inputCtx = nullptr;
@@ -149,7 +169,7 @@ bool ScreenCaptureThread::openInput() {
     }
 
     if (m_videoStreamIndex < 0) {
-        LOG_ERROR("[capture] No video stream found in gdigrab input");
+        LOG_ERROR("[capture] No video stream found in screen capture input");
         avformat_close_input(&m_inputCtx);
         m_inputCtx = nullptr;
         return false;
@@ -201,7 +221,7 @@ bool ScreenCaptureThread::openInput() {
     LOG_INFO("[capture] Decoder opened: codec_id=%d  output_fmt=%d",
              par->codec_id, m_decoderCtx->pix_fmt);
 
-    LOG_INFO("[capture] gdigrab input opened successfully");
+    LOG_INFO("[capture] screen capture input opened successfully");
     return true;
 }
 
@@ -226,7 +246,7 @@ void ScreenCaptureThread::run() {
         int ret = av_read_frame(m_inputCtx, pkt);
         if (ret < 0) {
             if (ret == AVERROR_EOF) {
-                LOG_WARN("[capture] EOF from gdigrab");
+                LOG_WARN("[capture] EOF from screen capture");
                 break;
             }
             errorCount++;

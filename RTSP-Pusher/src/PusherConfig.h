@@ -32,8 +32,11 @@ struct PusherConfig {
 
     const char* rtspTransport = "tcp";
 
-    // Hardware encoder selection ("off", "auto", "qsv", "nvenc", or codec name)
+    // Hardware encoder selection ("off", "auto", "qsv", "vaapi", "nvenc", or codec name)
     const char* hwEncoder = "off";
+
+    // VAAPI DRM device path (default: /dev/dri/renderD128)
+    const char* drmDevice = "/dev/dri/renderD128";
 
     // Capture backend: "auto" (default), "gdigrab", "ddagrab"
     const char* captureMethod = "auto";

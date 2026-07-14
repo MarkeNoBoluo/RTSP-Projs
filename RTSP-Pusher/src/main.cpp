@@ -1,21 +1,24 @@
+#ifdef _WIN32
 #define SDL_MAIN_HANDLED
 #include <windows.h>
 #include <conio.h>
-#include <SDL.h>
-#include <vector>
-#include <algorithm>
-
 extern "C" {
 __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);
 __declspec(dllimport) unsigned int __stdcall timeEndPeriod(unsigned int);
 }
+#endif
+#include <SDL.h>
+#include <vector>
+#include <algorithm>
 
-// ── Monitor enumeration ─────────────────────────────────────────
+#ifdef _WIN32
+
+// ── Monitor enumeration (Windows) ───────────────────────────────────
 struct MonitorEntry {
     int  index;
-    int  x, y;               // virtual-screen position (logical, post-DPI-scaling)
-    int  width, height;      // logical resolution (= physical / scale)
-    int  physWidth, physHeight; // physical pixel resolution
+    int  x, y;
+    int  width, height;
+    int  physWidth, physHeight;
     bool isPrimary;
     char deviceName[32];
 };
@@ -29,7 +32,6 @@ static std::vector<MonitorEntry> enumerateMonitors() {
             mi.cbSize = sizeof(mi);
             if (!GetMonitorInfo(hMon, &mi)) return TRUE;
 
-            // Get physical resolution via EnumDisplaySettings
             DEVMODE dm;
             ZeroMemory(&dm, sizeof(dm));
             dm.dmSize = sizeof(dm);
@@ -53,7 +55,6 @@ static std::vector<MonitorEntry> enumerateMonitors() {
         },
         reinterpret_cast<LPARAM>(&result));
 
-    // Sort: primary first, then left-to-right, top-to-bottom
     std::sort(result.begin(), result.end(),
         [](const MonitorEntry& a, const MonitorEntry& b) {
             if (a.isPrimary != b.isPrimary) return a.isPrimary;
@@ -61,10 +62,85 @@ static std::vector<MonitorEntry> enumerateMonitors() {
             return a.y < b.y;
         });
     for (size_t i = 0; i < result.size(); ++i) {
-        result[i].index = static_cast<int>(i) + 1;  // 1-based for user display
+        result[i].index = static_cast<int>(i) + 1;
     }
     return result;
 }
+
+#else
+
+// ── Monitor enumeration (Linux via xrandr) ─────────────────────────
+struct MonitorEntry {
+    int  index;
+    int  x, y;
+    int  width, height;
+    int  physWidth, physHeight;
+    bool isPrimary;
+    char deviceName[32];
+};
+
+static std::vector<MonitorEntry> enumerateMonitors() {
+    std::vector<MonitorEntry> result;
+
+    FILE* fp = popen("xrandr --query 2>/dev/null", "r");
+    if (!fp) {
+        // fallback: single monitor at 1920x1080
+        MonitorEntry e = {};
+        e.index = 1;
+        e.width = 1920; e.height = 1080;
+        e.physWidth = 1920; e.physHeight = 1080;
+        e.isPrimary = true;
+        snprintf(e.deviceName, sizeof(e.deviceName), "screen0");
+        result.push_back(e);
+        return result;
+    }
+
+    char line[256];
+    int indexCounter = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        // Match lines like: "HDMI-0 connected 1920x1080+0+0 ..."
+        int w = 0, h = 0, x = 0, y = 0;
+        char name[32] = {};
+        bool primary = (strstr(line, "primary") != nullptr);
+
+        if (sscanf(line, "%31s connected %*s %dx%d+%d+%d",
+                   name, &w, &h, &x, &y) >= 5 ||
+            sscanf(line, "%31s connected %dx%d+%d+%d",
+                   name, &w, &h, &x, &y) >= 5) {
+            indexCounter++;
+            MonitorEntry e;
+            e.index = indexCounter;
+            e.x = x; e.y = y;
+            e.width = w; e.height = h;
+            e.physWidth = w; e.physHeight = h;
+            e.isPrimary = primary;
+            snprintf(e.deviceName, sizeof(e.deviceName), "%s", name);
+            result.push_back(e);
+        }
+    }
+    pclose(fp);
+
+    // Sort: primary first
+    std::sort(result.begin(), result.end(),
+        [](const MonitorEntry& a, const MonitorEntry& b) {
+            if (a.isPrimary != b.isPrimary) return a.isPrimary;
+            if (a.x != b.x) return a.x < b.x;
+            return a.y < b.y;
+        });
+
+    if (result.empty()) {
+        MonitorEntry e = {};
+        e.index = 1;
+        e.width = 1920; e.height = 1080;
+        e.physWidth = 1920; e.physHeight = 1080;
+        e.isPrimary = true;
+        snprintf(e.deviceName, sizeof(e.deviceName), "screen0");
+        result.push_back(e);
+    }
+    return result;
+}
+
+#endif
 
 #include "RTSPusher.h"
 #include "PusherConfig.h"
@@ -72,6 +148,7 @@ static std::vector<MonitorEntry> enumerateMonitors() {
 #include "PusherStats.h"
 #include "HardwareEncoderDetector.h"
 #include "logger/Logger.h"
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -113,11 +190,12 @@ static void printUsage(const char* prog) {
         "  --audio-device-index <n> SDL audio capture device index from --list-audio-devices\n"
         "  --no-audio             Disable audio capture\n"
         "  --transport <tcp|udp>  RTSP transport (default: tcp)\n"
-        "  --hw-encoder <name>    Hardware encoder: auto, qsv, nvenc, off (default: off)\n"
+        "  --hw-encoder <name>    Hardware encoder: auto, qsv, vaapi, nvenc, off (default: off)\n"
         "  --capture-method <m>   Capture backend: auto, gdigrab, ddagrab (default: auto)\n"
+        "  --drm-device <path>    VAAPI DRM device path (default: /dev/dri/renderD128)\n"
         "  --list-encoders         List available H.264 encoders and exit\n"
         "  --log <path>           Log file path (default: rtsp_pusher.log)\n"
-        "  --stats-csv <path>     Stats CSV output path (default: rtsp_pusher_stats.csv)\n"
+        "  --csv <path>           CSV output path (default: rtsp_pushe.csv)\n"
         "  --duration <seconds>   Auto-exit after N seconds (for test automation)\n"
         "  --help                 Show this help\n"
         "\nExit: press q/ESC in SDL window, send 'q' via stdin, or use --duration.\n",
@@ -125,14 +203,16 @@ static void printUsage(const char* prog) {
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _WIN32
     // Declare DPI awareness so gdigrab captures native (physical) resolution,
     // not the DPI-scaled logical resolution from the composited desktop.
     SetProcessDPIAware();
+#endif
 
     // ── Parse command-line arguments ──────────────────────────────
     PusherConfig config;
     const char* logPath     = "rtsp_pusher.log";
-    const char* statsCsv    = "rtsp_pusher_stats.csv";
+    const char* statsCsv    = "rtsp_pusher.csv";
     int         durationSec = 0;  // 0 = run until manual exit
     bool listAudioDevicesOnly = false;
     bool listScreensOnly    = false;
@@ -156,7 +236,7 @@ int main(int argc, char* argv[]) {
             config.rtspUrl = argv[++i];
         } else if (std::strcmp(argv[i], "--capture-size") == 0 && i + 1 < argc) {
             int w, h;
-            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2) {
+            if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
                 config.captureWidth = w;
                 config.captureHeight = h;
             } else {
@@ -164,7 +244,7 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "-capture-size") == 0 && i + 1 < argc) {
             int w, h;
-            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2) {
+            if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
                 config.captureWidth = w;
                 config.captureHeight = h;
             } else {
@@ -172,7 +252,7 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "--output-size") == 0 && i + 1 < argc) {
             int w, h;
-            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2) {
+            if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
                 config.outputWidth = w;
                 config.outputHeight = h;
             } else {
@@ -180,7 +260,7 @@ int main(int argc, char* argv[]) {
             }
         } else if (std::strcmp(argv[i], "-output-size") == 0 && i + 1 < argc) {
             int w, h;
-            if (sscanf_s(argv[++i], "%dx%d", &w, &h) == 2) {
+            if (sscanf(argv[++i], "%dx%d", &w, &h) == 2) {
                 config.outputWidth = w;
                 config.outputHeight = h;
             } else {
@@ -236,9 +316,9 @@ int main(int argc, char* argv[]) {
             logPath = argv[++i];
         } else if (std::strcmp(argv[i], "-log") == 0 && i + 1 < argc) {
             logPath = argv[++i];
-        } else if (std::strcmp(argv[i], "--stats-csv") == 0 && i + 1 < argc) {
+        } else if (std::strcmp(argv[i], "--csv") == 0 && i + 1 < argc) {
             statsCsv = argv[++i];
-        } else if (std::strcmp(argv[i], "-stats-csv") == 0 && i + 1 < argc) {
+        } else if (std::strcmp(argv[i], "-csv") == 0 && i + 1 < argc) {
             statsCsv = argv[++i];
         } else if (std::strcmp(argv[i], "--list-encoders") == 0) {
             listEncodersOnly = true;
@@ -252,6 +332,10 @@ int main(int argc, char* argv[]) {
             config.captureMethod = argv[++i];
         } else if (std::strcmp(argv[i], "-capture-method") == 0 && i + 1 < argc) {
             config.captureMethod = argv[++i];
+        } else if (std::strcmp(argv[i], "--drm-device") == 0 && i + 1 < argc) {
+            config.drmDevice = argv[++i];
+        } else if (std::strcmp(argv[i], "-drm-device") == 0 && i + 1 < argc) {
+            config.drmDevice = argv[++i];
         } else if (std::strcmp(argv[i], "--duration") == 0 && i + 1 < argc) {
             durationSec = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "-duration") == 0 && i + 1 < argc) {
@@ -280,7 +364,7 @@ int main(int argc, char* argv[]) {
     // ── Resolve captureMethod ─────────────────────────────────────
     {
         if (std::strcmp(config.captureMethod, "auto") == 0) {
-            // QSV/NVENC encoders prefer ddagrab pipeline; everything else uses gdigrab
+#ifdef _WIN32
             if (std::strcmp(config.hwEncoder, "qsv") == 0 ||
                 std::strcmp(config.hwEncoder, "h264_qsv") == 0 ||
                 std::strcmp(config.hwEncoder, "nvenc") == 0 ||
@@ -289,19 +373,30 @@ int main(int argc, char* argv[]) {
             } else {
                 config.captureMethod = "gdigrab";
             }
+#else
+            config.captureMethod = "x11grab";
+#endif
         }
 
-        // Validate ddagrab: x64 only
+#ifdef _WIN32
         if (std::strcmp(config.captureMethod, "ddagrab") == 0) {
 #if !defined(_WIN64)
             fprintf(stderr, "ddagrab capture method requires x64 build.\n");
             return 1;
 #endif
-        } else if (std::strcmp(config.captureMethod, "gdigrab") != 0) {
+        } else if (std::strcmp(config.captureMethod, "gdigrab") != 0 &&
+                   std::strcmp(config.captureMethod, "x11grab") != 0) {
             fprintf(stderr, "Unknown --capture-method '%s'. Use gdigrab, ddagrab, or auto.\n",
                     config.captureMethod);
             return 1;
         }
+#else
+        if (std::strcmp(config.captureMethod, "x11grab") != 0) {
+            fprintf(stderr, "Unknown --capture-method '%s'. Use x11grab or auto.\n",
+                    config.captureMethod);
+            return 1;
+        }
+#endif
     }
 
     // ── Resolve screen selection ──────────────────────────────────
@@ -374,7 +469,9 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+#ifdef _WIN32
     timeBeginPeriod(1);
+#endif
 
     // ── Print configuration ───────────────────────────────────────
     LOG_INFO("Configuration:");
@@ -403,10 +500,11 @@ int main(int argc, char* argv[]) {
     }
     LOG_INFO("  transport:      %s", config.rtspTransport);
     LOG_INFO("  hw-encoder:     %s (requested)", config.hwEncoder);
+    LOG_INFO("  drm device:     %s", config.drmDevice);
     LOG_INFO("  capture method: %s", config.captureMethod);
     LOG_INFO("  log path:       %s", logPath);
     if (statsCsv) {
-        LOG_INFO("  stats csv:      %s", statsCsv);
+        LOG_INFO("  csv:      %s", statsCsv);
     }
     if (durationSec > 0) {
         LOG_INFO("  duration:       %ds (auto-exit)", durationSec);
@@ -438,7 +536,11 @@ int main(int argc, char* argv[]) {
     // Stats CSV
     FILE* statsFile = nullptr;
     if (statsCsv) {
+#ifdef _WIN32
         fopen_s(&statsFile, statsCsv, "w");
+#else
+        statsFile = fopen(statsCsv, "w");
+#endif
         if (statsFile) {
             pusher.stats()->writeCsvHeader(statsFile);
             LOG_INFO("Stats CSV opened: %s", statsCsv);
@@ -545,6 +647,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
+#ifdef _WIN32
         // Check stdin for exit command (for headless/process-manager control)
         if (_kbhit()) {
             int ch = _getch();
@@ -552,6 +655,7 @@ int main(int argc, char* argv[]) {
                 requestExit("stdin shutdown");
             }
         }
+#endif
 
         // ~1ms tick
         SDL_Delay(1);
@@ -571,7 +675,9 @@ int main(int argc, char* argv[]) {
         statsFile = nullptr;
     }
 
+#ifdef _WIN32
     timeEndPeriod(1);
+#endif
     SDL_Quit();
     return 0;
 }

@@ -1,10 +1,14 @@
+#ifdef _WIN32
 #define SDL_MAIN_HANDLED
+#endif
 #include <SDL.h>
 
+#ifdef _WIN32
 extern "C" {
 __declspec(dllimport) unsigned int __stdcall timeBeginPeriod(unsigned int);
 __declspec(dllimport) unsigned int __stdcall timeEndPeriod(unsigned int);
 }
+#endif
 
 #include "RTSPlayer.h"
 #include "SDLRenderer.h"
@@ -214,7 +218,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+#ifdef _WIN32
     timeBeginPeriod(1);
+#endif
 
     // ── Create renderer ───────────────────────────────────────────
     std::unique_ptr<SDLRenderer> renderer;
@@ -367,7 +373,9 @@ int main(int argc, char* argv[]) {
     }
 
     player.close();
+#ifdef _WIN32
     timeEndPeriod(1);
+#endif
     SDL_Quit();
     return 0;
 }

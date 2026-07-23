@@ -385,7 +385,7 @@ bool VideoEncodeThread::openEncoder() {
     // ── Final check ──
     if (!m_codecCtx) {
         if (isExplicit) {
-            LOG_WARN("[encode] %s encoder failed to open, "
+            LOG_WARN("[encode] %s encoder unavailable, "
                      "falling back to libx264", requestedName);
             m_codecCtx = tryOpenStandard("libx264", AV_PIX_FMT_YUV420P);
             if (m_codecCtx) {
